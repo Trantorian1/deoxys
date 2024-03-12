@@ -54,6 +54,7 @@ starknet-e2e-test/contracts/build
 .vscode/settings.json
 
 # rpc output
-output*
+output_deoxys.json
+output_pathfinder.json
 
 tmp/
