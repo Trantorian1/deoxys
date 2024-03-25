@@ -5850,6 +5850,8 @@ dependencies = [
 name = "mc-db"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "bitvec",
  "bonsai-trie",
  "ethers",
  "kvdb",
@@ -5859,6 +5861,7 @@ dependencies = [
  "parity-db",
  "parity-scale-codec",
  "sc-client-db",
+ "sp-core",
  "sp-database",
  "sp-runtime",
  "starknet-types-core",
@@ -5908,6 +5911,7 @@ name = "mc-rpc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bitvec",
  "blockifier",
  "cairo-lang-casm-contract-class",
  "deoxys-runtime",
@@ -6429,7 +6433,6 @@ dependencies = [
 name = "mp-types"
 version = "0.1.0"
 dependencies = [
- "pallet-starknet",
  "sp-core",
  "sp-runtime",
 ]
@@ -7118,6 +7121,7 @@ dependencies = [
  "itertools 0.12.1",
  "lazy_static",
  "log",
+ "mc-db",
  "mp-block",
  "mp-contract",
  "mp-digest-log",
