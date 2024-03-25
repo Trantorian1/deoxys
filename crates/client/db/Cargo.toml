@@ -26,7 +26,7 @@ sp-database = { workspace = true, default-features = true }
 sp-runtime = { workspace = true, default-features = true }
 
 # Madara crates
-deoxys-runtime = { workspace = true }
+mp-types = { workspace = true }
 
 # Starknet crates
 bonsai-trie = { workspace = true }

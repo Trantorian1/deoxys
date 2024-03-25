@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use bonsai_trie::id::BasicId;
 use bonsai_trie::BonsaiStorage;
-use deoxys_runtime::opaque::{DBlockT, DHashT};
 use futures::{stream, StreamExt};
 use lazy_static::lazy_static;
 use mc_db::bonsai_db::BonsaiDb;
@@ -14,6 +13,7 @@ use mp_block::state_update::StateUpdateWrapper;
 use mp_block::DeoxysBlock;
 use mp_contract::class::ClassUpdateWrapper;
 use mp_felt::Felt252Wrapper;
+use mp_types::block::{DBlockT, DHashT};
 use serde::Deserialize;
 use sp_blockchain::HeaderBackend;
 use sp_core::H256;

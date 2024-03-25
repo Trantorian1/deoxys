@@ -13,8 +13,8 @@ pub mod reorgs;
 pub mod types;
 pub mod utils;
 
-pub use deoxys_runtime::opaque::{DBlockT, DHashT};
 pub use l2::SenderConfig;
+pub use mp_types::block::{DBlockT, DHashT};
 pub use utils::{convert, m, utility};
 
 type CommandSink = futures::channel::mpsc::Sender<sc_consensus_manual_seal::rpc::EngineCommand<sp_core::H256>>;

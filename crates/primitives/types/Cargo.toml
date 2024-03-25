@@ -1,6 +1,6 @@
 [package]
 name = "mp-types"
-description = "Starknet Block types"
+description = "Deoxys substrate types"
 authors.workspace = true
 edition.workspace = true
 repository.workspace = true
