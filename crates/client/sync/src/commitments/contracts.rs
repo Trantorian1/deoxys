@@ -15,13 +15,15 @@ use sp_core::hexdisplay::AsBytesRef;
 use starknet_api::api_core::ContractAddress;
 use starknet_api::hash::StarkFelt;
 use starknet_api::state::StorageKey;
+use starknet_ff::FieldElement;
+use starknet_types_core::felt::Felt;
 use starknet_types_core::hash::Pedersen;
 
 #[derive(Debug)]
 pub struct ContractLeafParams {
-    pub class_hash: Felt252Wrapper,
-    pub storage_root: Felt252Wrapper,
-    pub nonce: Felt252Wrapper,
+    pub class_hash: FieldElement,
+    pub storage_root: FieldElement,
+    pub nonce: FieldElement,
 }
 
 /// Calculates the storage root in memory recomupting all the storage changes for a specific
@@ -51,14 +53,6 @@ pub fn update_storage_trie(contract_address: &ContractAddress, storage_updates: 
     });
 }
 
-fn convert_storage(storage: (StorageKey, StarkFelt)) -> (BitVec<u8, Msb0>, Felt252Wrapper) {
-    let (storage_key, storage_value) = storage;
-    let key = Felt252Wrapper::from(storage_key.0.0).0.to_bytes_be().view_bits()[5..].to_owned();
-    let value = Felt252Wrapper::from(storage_value);
-
-    (key, value)
-}
-
 /// Calculates the contract state hash.
 ///
 /// # Arguments
@@ -71,15 +65,12 @@ fn convert_storage(storage: (StorageKey, StarkFelt)) -> (BitVec<u8, Msb0>, Felt2
 /// # Returns
 ///
 /// The contract state leaf hash.
-pub fn calculate_contract_state_leaf_hash<H: HasherT>(contract_leaf_params: ContractLeafParams) -> Felt252Wrapper {
-    // Define the constant for the contract state hash version
-    const CONTRACT_STATE_HASH_VERSION: Felt252Wrapper = Felt252Wrapper::ZERO;
+pub fn calculate_contract_state_leaf_hash<H: HasherT>(contract_leaf_params: ContractLeafParams) -> Felt {
+    let contract_state_hash = H::hash_elements(contract_leaf_params.class_hash, contract_leaf_params.storage_root);
+    let contract_state_hash = H::hash_elements(contract_state_hash, contract_leaf_params.nonce);
+    let contract_state_hash = H::hash_elements(contract_state_hash, FieldElement::ZERO);
 
-    let contract_state_hash = H::hash_elements(contract_leaf_params.class_hash.0, contract_leaf_params.storage_root.0);
-    let contract_state_hash = H::hash_elements(contract_state_hash, contract_leaf_params.nonce.0);
-    let contract_state_hash = H::hash_elements(contract_state_hash, CONTRACT_STATE_HASH_VERSION.0);
-
-    contract_state_hash.into()
+    Felt::from_bytes_be(&contract_state_hash.to_bytes_be())
 }
 
 pub fn identifier(contract_address: &ContractAddress) -> &[u8] {

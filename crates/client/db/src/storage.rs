@@ -162,14 +162,17 @@ impl<'a> ContractStorageTrieHandler<'a> {
 
     pub fn init(&mut self, identifier: &ContractAddress) -> Result<(), DeoxysStorageError> {
         let identifier = conv_contract_identifier(identifier);
-        self.0.init_tree(identifier).unwrap();
+        self.0.init_tree(identifier).map_err(|_| DeoxysStorageError::TrieInitError(StorageType::ContractStorage))?;
 
         Ok(())
     }
 
     pub fn root(&mut self, identifier: &ContractAddress) -> Result<Felt, DeoxysStorageError> {
         let identifier = conv_contract_identifier(identifier);
-        let root_hash = self.0.root_hash(identifier).unwrap();
+        let root_hash = self
+            .0
+            .root_hash(identifier)
+            .map_err(|_| DeoxysStorageError::TrieRootError(StorageType::ContractStorage))?;
 
         Ok(root_hash)
     }

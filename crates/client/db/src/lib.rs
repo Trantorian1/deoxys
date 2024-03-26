@@ -231,11 +231,11 @@ impl DeoxysBackend {
         BACKEND_SINGLETON.get().map(|backend| &backend.sierra_classes).expect("Backend not initialized")
     }
 
-    pub fn bonsai_contract() -> &'static Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>> {
+    pub(crate) fn bonsai_contract() -> &'static Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>> {
         BACKEND_SINGLETON.get().map(|backend| &backend.bonsai_contract).expect("Backend not initialized")
     }
 
-    pub fn bonsai_storage() -> &'static Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>> {
+    pub(crate) fn bonsai_storage() -> &'static Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>> {
         BACKEND_SINGLETON.get().map(|backend| &backend.bonsai_storage).expect("Backend not initialized")
     }
 

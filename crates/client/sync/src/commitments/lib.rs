@@ -8,7 +8,7 @@ use bonsai_trie::id::BasicId;
 use bonsai_trie::{BonsaiStorage, BonsaiStorageError};
 use indexmap::IndexMap;
 use mc_db::bonsai_db::BonsaiDb;
-use mc_db::storage::StorageHandler;
+use mc_db::storage::{DeoxysStorageError, StorageHandler};
 use mc_db::{BonsaiDbError, DeoxysBackend};
 use mc_storage::OverrideHandle;
 use mp_block::state_update::StateUpdateWrapper;
@@ -26,6 +26,8 @@ use starknet_api::api_core::{ClassHash, CompiledClassHash, ContractAddress, Nonc
 use starknet_api::hash::StarkFelt;
 use starknet_api::state::StorageKey;
 use starknet_api::transaction::Event;
+use starknet_ff::FieldElement;
+use starknet_types_core::felt::Felt;
 use starknet_types_core::hash::{Pedersen, Poseidon};
 use tokio::join;
 
@@ -199,26 +201,34 @@ fn contract_trie_root(
     overrides: Arc<OverrideHandle<Block<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>>,
     block_number: u64,
     maybe_block_hash: Option<H256>,
-) -> Result<Felt252Wrapper, BonsaiStorageError<BonsaiDbError>> {
+) -> Result<Felt252Wrapper, DeoxysStorageError> {
+    // NOTE: handlers implicitely acquire a lock on their respective tries
+    // for the duration of their livetimes
     let mut handler_contract = StorageHandler::contract();
-    handler_contract.init().unwrap();
+    let mut handler_storage = StorageHandler::contract_storage();
+
+    // Tries need to be initialised before values are inserted
+    handler_contract.init()?;
 
     // First we insert the contract storage changes
-    // TODO: @cchudant parallelize this loop
     for (contract_address, updates) in csd.storage_updates.iter() {
-        update_storage_trie(contract_address, updates);
+        handler_storage.init(contract_address)?;
+
+        for (key, value) in updates {
+            handler_storage.insert(contract_address, key, *value)?;
+        }
     }
 
     // Then we commit them
-    DeoxysBackend::bonsai_storage().lock().unwrap().commit(BasicId::new(block_number))?;
+    handler_storage.commit(block_number)?;
 
     // Then we compute the leaf hashes retrieving the corresponding storage root
-    // TODO: @cchudant parallelize this loop
-    for contract_address in csd.storage_updates.iter() {
+    for (contract_address, _) in csd.storage_updates.iter() {
+        let storage_root = handler_storage.root(contract_address)?;
         let class_commitment_leaf_hash =
-            contract_state_leaf_hash(csd, &overrides, contract_address.0, maybe_block_hash)?;
+            contract_state_leaf_hash(csd, &overrides, contract_address, storage_root, maybe_block_hash);
 
-        handler_contract.insert(contract_address.0, class_commitment_leaf_hash.into()).unwrap();
+        handler_contract.insert(contract_address, class_commitment_leaf_hash).unwrap();
     }
 
     handler_contract.commit(block_number).unwrap();
@@ -229,18 +239,19 @@ fn contract_state_leaf_hash(
     csd: &CommitmentStateDiff,
     overrides: &OverrideHandle<Block<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>,
     contract_address: &ContractAddress,
+    storage_root: Felt,
     maybe_block_hash: Option<H256>,
-) -> Result<Felt252Wrapper, BonsaiStorageError<BonsaiDbError>> {
-    let identifier = identifier(contract_address);
-    let storage_root =
-        DeoxysBackend::bonsai_storage().lock().unwrap().root_hash(identifier).expect("Failed to get root hash").into();
-
-    let nonce =
-        Felt252Wrapper::from(*csd.address_to_nonce.get(contract_address).unwrap_or(&Felt252Wrapper::ZERO.into()));
-
+) -> Felt {
     let class_hash = class_hash(csd, overrides, contract_address, maybe_block_hash);
+
+    let storage_root = FieldElement::from_bytes_be(&storage_root.to_bytes_be()).unwrap();
+
+    let nonce_bytes = csd.address_to_nonce.get(contract_address).unwrap_or(&Nonce::default()).0.0;
+    let nonce = FieldElement::from_bytes_be(&nonce_bytes).unwrap();
+
     let contract_leaf_params = ContractLeafParams { class_hash, storage_root, nonce };
-    Ok(calculate_contract_state_leaf_hash::<PedersenHasher>(contract_leaf_params))
+
+    calculate_contract_state_leaf_hash::<PedersenHasher>(contract_leaf_params)
 }
 
 fn class_hash(
@@ -248,7 +259,7 @@ fn class_hash(
     overrides: &OverrideHandle<Block<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>,
     contract_address: &ContractAddress,
     maybe_block_hash: Option<H256>,
-) -> Felt252Wrapper {
+) -> FieldElement {
     let class_hash = match csd.address_to_class_hash.get(contract_address) {
         Some(class_hash) => *class_hash,
         None => match maybe_block_hash {
@@ -260,7 +271,7 @@ fn class_hash(
         },
     };
 
-    Felt252Wrapper::from(class_hash)
+    FieldElement::from_byte_slice_be(class_hash.0.bytes()).unwrap()
 }
 
 /// Calculates the class trie root
