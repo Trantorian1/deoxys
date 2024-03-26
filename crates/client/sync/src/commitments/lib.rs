@@ -201,7 +201,7 @@ fn contract_trie_root(
     maybe_block_hash: Option<H256>,
 ) -> Result<Felt252Wrapper, BonsaiStorageError<BonsaiDbError>> {
     let mut handler_contract = StorageHandler::contract();
-    handler_contract.init();
+    handler_contract.init().unwrap();
 
     // First we insert the contract storage changes
     // TODO: @cchudant parallelize this loop
