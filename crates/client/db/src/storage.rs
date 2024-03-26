@@ -180,7 +180,7 @@ fn conv_contract_identifier(identifier: &ContractAddress) -> &[u8] {
 }
 
 fn conv_contract_key(key: &ContractAddress) -> BitVec<u8, Msb0> {
-    key.0.0.0.as_bits().to_owned()
+    key.0.0.0.as_bits()[5..].to_owned()
 }
 
 fn conv_contract_storage_key(key: &StorageKey) -> BitVec<u8, Msb0> {

@@ -8,6 +8,7 @@ use bonsai_trie::id::BasicId;
 use bonsai_trie::{BonsaiStorage, BonsaiStorageError};
 use indexmap::IndexMap;
 use mc_db::bonsai_db::BonsaiDb;
+use mc_db::storage::StorageHandler;
 use mc_db::{BonsaiDbError, DeoxysBackend};
 use mc_storage::OverrideHandle;
 use mp_block::state_update::StateUpdateWrapper;
@@ -171,14 +172,8 @@ pub fn update_state_root(
     substrate_block_hash: Option<H256>,
 ) -> Felt252Wrapper {
     // Update contract and its storage tries
-    let contract_trie_root = contract_trie_root(
-        &csd,
-        overrides,
-        DeoxysBackend::bonsai_contract().lock().unwrap(),
-        block_number,
-        substrate_block_hash,
-    )
-    .expect("Failed to compute contract root");
+    let contract_trie_root = contract_trie_root(&csd, overrides, block_number, substrate_block_hash)
+        .expect("Failed to compute contract root");
 
     // Update class trie
     let class_trie_root =
@@ -202,12 +197,11 @@ pub fn update_state_root(
 fn contract_trie_root(
     csd: &CommitmentStateDiff,
     overrides: Arc<OverrideHandle<Block<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>>,
-    mut bonsai_contract: MutexGuard<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>,
     block_number: u64,
     maybe_block_hash: Option<H256>,
 ) -> Result<Felt252Wrapper, BonsaiStorageError<BonsaiDbError>> {
-    let identifier = bonsai_identifier::CONTRACT;
-    bonsai_contract.init_tree(identifier)?;
+    let mut handler_contract = StorageHandler::contract();
+    handler_contract.init();
 
     // First we insert the contract storage changes
     // TODO: @cchudant parallelize this loop
@@ -224,12 +218,11 @@ fn contract_trie_root(
         let class_commitment_leaf_hash =
             contract_state_leaf_hash(csd, &overrides, contract_address.0, maybe_block_hash)?;
 
-        let key = key(contract_address.0.0.0);
-        bonsai_contract.insert(identifier, &key, &class_commitment_leaf_hash.into())?;
+        handler_contract.insert(contract_address.0, class_commitment_leaf_hash.into()).unwrap();
     }
 
-    bonsai_contract.commit(BasicId::new(block_number))?;
-    Ok(bonsai_contract.root_hash(identifier)?.into())
+    handler_contract.commit(block_number).unwrap();
+    Ok(handler_contract.root().unwrap().into())
 }
 
 fn contract_state_leaf_hash(
