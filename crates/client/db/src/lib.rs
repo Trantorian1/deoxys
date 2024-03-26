@@ -1,3 +1,5 @@
+#![feature(lazy_cell)]
+
 //! A database backend storing data about madara chain
 //!
 //! # Usefulness
@@ -239,7 +241,7 @@ impl DeoxysBackend {
         BACKEND_SINGLETON.get().map(|backend| &backend.bonsai_storage).expect("Backend not initialized")
     }
 
-    pub fn bonsai_class() -> &'static Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Poseidon>>> {
+    pub(crate) fn bonsai_class() -> &'static Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Poseidon>>> {
         BACKEND_SINGLETON.get().map(|backend| &backend.bonsai_class).expect("Backend not initialized")
     }
 

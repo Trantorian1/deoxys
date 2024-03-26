@@ -2,16 +2,21 @@ use std::fmt::Display;
 use std::sync::MutexGuard;
 
 use bitvec::prelude::Msb0;
+use bitvec::slice::BitSlice;
 use bitvec::vec::BitVec;
 use bitvec::view::AsBits;
 use bonsai_trie::id::BasicId;
 use bonsai_trie::BonsaiStorage;
+use lazy_static::lazy_static;
+use mp_hashers::poseidon::PoseidonHasher;
+use mp_hashers::HasherT;
 use sp_core::hexdisplay::AsBytesRef;
-use starknet_api::api_core::ContractAddress;
+use starknet_api::api_core::{ClassHash, CompiledClassHash, ContractAddress};
 use starknet_api::hash::StarkFelt;
 use starknet_api::state::StorageKey;
+use starknet_ff::FieldElement;
 use starknet_types_core::felt::Felt;
-use starknet_types_core::hash::Pedersen;
+use starknet_types_core::hash::{Pedersen, Poseidon};
 use thiserror::Error;
 
 use crate::bonsai_db::BonsaiDb;
@@ -23,7 +28,7 @@ pub struct ContractTrieHandler<'a>(MutexGuard<'a, BonsaiStorage<BasicId, BonsaiD
 
 pub struct ContractStorageTrieHandler<'a>(MutexGuard<'a, BonsaiStorage<BasicId, BonsaiDb, Pedersen>>);
 
-pub struct ClassTrieHandler;
+pub struct ClassTrieHandler<'a>(MutexGuard<'a, BonsaiStorage<BasicId, BonsaiDb, Poseidon>>);
 
 #[derive(Debug)]
 pub enum StorageType {
@@ -74,8 +79,8 @@ impl<'a> StorageHandler {
         ContractStorageTrieHandler(DeoxysBackend::bonsai_storage().lock().unwrap())
     }
 
-    pub fn class() -> ClassTrieHandler {
-        ClassTrieHandler
+    pub fn class() -> ClassTrieHandler<'a> {
+        ClassTrieHandler(DeoxysBackend::bonsai_class().lock().unwrap())
     }
 }
 
@@ -91,12 +96,12 @@ impl<'a> ContractTrieHandler<'a> {
     pub fn get(&self, key: &ContractAddress) -> Result<Option<Felt>, DeoxysStorageError> {
         let key = conv_contract_key(key);
 
-        let result = self
+        let value = self
             .0
             .get(bonsai_identifier::CONTRACT, &key)
             .map_err(|_| DeoxysStorageError::StorageRetrievalError(StorageType::Contract))?;
 
-        Ok(result)
+        Ok(value)
     }
 
     pub fn commit(&mut self, block_number: u64) -> Result<(), DeoxysStorageError> {
@@ -115,7 +120,7 @@ impl<'a> ContractTrieHandler<'a> {
         Ok(())
     }
 
-    pub fn root(&mut self) -> Result<Felt, DeoxysStorageError> {
+    pub fn root(&self) -> Result<Felt, DeoxysStorageError> {
         let root_hash = self
             .0
             .root_hash(bonsai_identifier::CONTRACT)
@@ -144,12 +149,12 @@ impl<'a> ContractStorageTrieHandler<'a> {
         let identifier = conv_contract_identifier(identifier);
         let key = conv_contract_storage_key(key);
 
-        let result = self
+        let value = self
             .0
             .get(identifier, &key)
             .map_err(|_| DeoxysStorageError::StorageRetrievalError(StorageType::ContractStorage))?;
 
-        Ok(result)
+        Ok(value)
     }
 
     pub fn commit(&mut self, block_number: u64) -> Result<(), DeoxysStorageError> {
@@ -167,12 +172,68 @@ impl<'a> ContractStorageTrieHandler<'a> {
         Ok(())
     }
 
-    pub fn root(&mut self, identifier: &ContractAddress) -> Result<Felt, DeoxysStorageError> {
+    pub fn root(&self, identifier: &ContractAddress) -> Result<Felt, DeoxysStorageError> {
         let identifier = conv_contract_identifier(identifier);
         let root_hash = self
             .0
             .root_hash(identifier)
             .map_err(|_| DeoxysStorageError::TrieRootError(StorageType::ContractStorage))?;
+
+        Ok(root_hash)
+    }
+}
+
+lazy_static! {
+    static ref CONTRACT_CLASS_HASH_VERSION: FieldElement =
+        FieldElement::from_byte_slice_be("CONTRACT_CLASS_LEAF_V0".as_bytes()).unwrap();
+}
+
+impl<'a> ClassTrieHandler<'a> {
+    pub fn insert(&mut self, key: &ClassHash, value: &CompiledClassHash) -> Result<(), DeoxysStorageError> {
+        let compiled_class_hash = conv_compiled_class_hash(value);
+        let hash = PoseidonHasher::hash_elements(*CONTRACT_CLASS_HASH_VERSION, compiled_class_hash);
+
+        let key = conv_class_key(key);
+        let value = Felt::from_bytes_be(&hash.to_bytes_be());
+
+        self.0
+            .insert(bonsai_identifier::CLASS, &key, &value)
+            .map_err(|_| DeoxysStorageError::StorageInsertionError(StorageType::Contract))?;
+
+        Ok(())
+    }
+
+    pub fn get(&self, key: &ClassHash) -> Result<Option<Felt>, DeoxysStorageError> {
+        let key = conv_class_key(key);
+        let value = self
+            .0
+            .get(bonsai_identifier::CLASS, &key)
+            .map_err(|_| DeoxysStorageError::StorageRetrievalError(StorageType::Class))?;
+
+        Ok(value)
+    }
+
+    pub fn commit(&mut self, block_number: u64) -> Result<(), DeoxysStorageError> {
+        self.0
+            .commit(BasicId::new(block_number))
+            .map_err(|_| DeoxysStorageError::TrieCommitError(StorageType::Class))?;
+
+        Ok(())
+    }
+
+    pub fn init(&mut self) -> Result<(), DeoxysStorageError> {
+        self.0
+            .init_tree(bonsai_identifier::CLASS)
+            .map_err(|_| DeoxysStorageError::TrieInitError(StorageType::Class))?;
+
+        Ok(())
+    }
+
+    pub fn root(&self) -> Result<Felt, DeoxysStorageError> {
+        let root_hash = self
+            .0
+            .root_hash(bonsai_identifier::CLASS)
+            .map_err(|_| DeoxysStorageError::TrieRootError(StorageType::Class))?;
 
         Ok(root_hash)
     }
@@ -192,4 +253,12 @@ fn conv_contract_storage_key(key: &StorageKey) -> BitVec<u8, Msb0> {
 
 fn conv_contract_value(value: StarkFelt) -> Felt {
     Felt::from_bytes_be(&value.0)
+}
+
+fn conv_class_key(key: &ClassHash) -> BitVec<u8, Msb0> {
+    key.0.0.as_bits()[5..].to_owned()
+}
+
+fn conv_compiled_class_hash(compiled_class_hash: &CompiledClassHash) -> FieldElement {
+    FieldElement::from_bytes_be(&compiled_class_hash.0.0).unwrap()
 }

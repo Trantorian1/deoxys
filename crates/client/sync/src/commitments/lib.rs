@@ -169,7 +169,6 @@ where
 pub fn update_state_root(
     csd: CommitmentStateDiff,
     overrides: Arc<OverrideHandle<Block<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>>,
-    bonsai_class: Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Poseidon>>>,
     block_number: u64,
     substrate_block_hash: Option<H256>,
 ) -> Felt252Wrapper {
@@ -178,8 +177,7 @@ pub fn update_state_root(
         .expect("Failed to compute contract root");
 
     // Update class trie
-    let class_trie_root =
-        class_trie_root(&csd, bonsai_class.lock().unwrap(), block_number).expect("Failed to compute class root");
+    let class_trie_root = class_trie_root(&csd, block_number).expect("Failed to compute class root");
 
     calculate_state_root::<PoseidonHasher>(contract_trie_root, class_trie_root)
 }
@@ -285,24 +283,16 @@ fn class_hash(
 /// # Returns
 ///
 /// The class root.
-fn class_trie_root(
-    csd: &CommitmentStateDiff,
-    mut bonsai_class: MutexGuard<BonsaiStorage<BasicId, BonsaiDb, Poseidon>>,
-    block_number: u64,
-) -> Result<Felt252Wrapper, BonsaiStorageError<BonsaiDbError>> {
-    let identifier = bonsai_identifier::CLASS;
-    bonsai_class.init_tree(identifier)?;
+fn class_trie_root(csd: &CommitmentStateDiff, block_number: u64) -> Result<Felt252Wrapper, DeoxysStorageError> {
+    let mut handler_class = StorageHandler::class();
+    handler_class.init()?;
 
-    // TODO: @cchudant parallelize this loop
     for (class_hash, compiled_class_hash) in csd.class_hash_to_compiled_class_hash.iter() {
-        let class_commitment_leaf_hash =
-            calculate_class_commitment_leaf_hash::<PoseidonHasher>(Felt252Wrapper::from(compiled_class_hash.0));
-        let key = key(class_hash.0);
-        bonsai_class.insert(identifier, key.as_bitslice(), &class_commitment_leaf_hash.into())?;
+        handler_class.insert(class_hash, compiled_class_hash)?;
     }
 
-    bonsai_class.commit(BasicId::new(block_number))?;
-    Ok(bonsai_class.root_hash(identifier)?.into())
+    handler_class.commit(block_number)?;
+    Ok(handler_class.root()?.into())
 }
 
 /// Compute the bonsai storage key
