@@ -42,15 +42,7 @@ pub mod starknet_sync_worker {
 
         let _ = tokio::join!(
             l1::sync(l1_url.clone()),
-            l2::sync(
-                sender_config,
-                fetch_config.clone(),
-                first_block,
-                DeoxysBackend::bonsai_contract(),
-                DeoxysBackend::bonsai_storage(),
-                DeoxysBackend::bonsai_class(),
-                client,
-            )
+            l2::sync(sender_config, fetch_config.clone(), first_block, DeoxysBackend::bonsai_class(), client,)
         );
     }
 }

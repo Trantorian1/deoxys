@@ -1,3 +1,5 @@
+use bitvec::vec::BitVec;
+use bitvec::view::BitView;
 use jsonrpsee::core::RpcResult;
 use log::error;
 use mc_genesis_data_provider::GenesisProvider;

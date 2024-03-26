@@ -8,7 +8,7 @@ use bonsai_trie::id::BasicId;
 use bonsai_trie::{BonsaiStorage, BonsaiStorageError};
 use indexmap::IndexMap;
 use mc_db::bonsai_db::BonsaiDb;
-use mc_db::BonsaiDbError;
+use mc_db::{BonsaiDbError, DeoxysBackend};
 use mc_storage::OverrideHandle;
 use mp_block::state_update::StateUpdateWrapper;
 use mp_felt::Felt252Wrapper;
@@ -166,8 +166,6 @@ where
 pub fn update_state_root(
     csd: CommitmentStateDiff,
     overrides: Arc<OverrideHandle<Block<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>>,
-    bonsai_contract: Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
-    bonsai_contract_storage: Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
     bonsai_class: Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Poseidon>>>,
     block_number: u64,
     substrate_block_hash: Option<H256>,
@@ -176,8 +174,7 @@ pub fn update_state_root(
     let contract_trie_root = contract_trie_root(
         &csd,
         overrides,
-        bonsai_contract.lock().unwrap(),
-        bonsai_contract_storage,
+        DeoxysBackend::bonsai_contract().lock().unwrap(),
         block_number,
         substrate_block_hash,
     )
@@ -206,7 +203,6 @@ fn contract_trie_root(
     csd: &CommitmentStateDiff,
     overrides: Arc<OverrideHandle<Block<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>>,
     mut bonsai_contract: MutexGuard<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>,
-    bonsai_contract_storage: Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
     block_number: u64,
     maybe_block_hash: Option<H256>,
 ) -> Result<Felt252Wrapper, BonsaiStorageError<BonsaiDbError>> {
@@ -216,17 +212,17 @@ fn contract_trie_root(
     // First we insert the contract storage changes
     // TODO: @cchudant parallelize this loop
     for (contract_address, updates) in csd.storage_updates.iter() {
-        update_storage_trie(contract_address, updates, &bonsai_contract_storage);
+        update_storage_trie(contract_address, updates);
     }
 
     // Then we commit them
-    bonsai_contract_storage.lock().unwrap().commit(BasicId::new(block_number))?;
+    DeoxysBackend::bonsai_storage().lock().unwrap().commit(BasicId::new(block_number))?;
 
     // Then we compute the leaf hashes retrieving the corresponding storage root
     // TODO: @cchudant parallelize this loop
     for contract_address in csd.storage_updates.iter() {
         let class_commitment_leaf_hash =
-            contract_state_leaf_hash(csd, &overrides, contract_address.0, maybe_block_hash, &bonsai_contract_storage)?;
+            contract_state_leaf_hash(csd, &overrides, contract_address.0, maybe_block_hash)?;
 
         let key = key(contract_address.0.0.0);
         bonsai_contract.insert(identifier, &key, &class_commitment_leaf_hash.into())?;
@@ -241,11 +237,10 @@ fn contract_state_leaf_hash(
     overrides: &OverrideHandle<Block<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>,
     contract_address: &ContractAddress,
     maybe_block_hash: Option<H256>,
-    bonsai_contract_storage: &Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
 ) -> Result<Felt252Wrapper, BonsaiStorageError<BonsaiDbError>> {
     let identifier = identifier(contract_address);
     let storage_root =
-        bonsai_contract_storage.lock().unwrap().root_hash(identifier).expect("Failed to get root hash").into();
+        DeoxysBackend::bonsai_storage().lock().unwrap().root_hash(identifier).expect("Failed to get root hash").into();
 
     let nonce =
         Felt252Wrapper::from(*csd.address_to_nonce.get(contract_address).unwrap_or(&Felt252Wrapper::ZERO.into()));

@@ -1013,6 +1013,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get storage value at
+    /// TODO: this needs to be updated to use Bonsai storage
     pub fn get_storage_at(contract_address: ContractAddress, key: StorageKey) -> Result<StarkFelt, DispatchError> {
         // Get state
         ensure!(ContractClassHashes::<T>::contains_key(contract_address), Error::<T>::ContractNotFound);

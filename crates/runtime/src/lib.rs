@@ -77,6 +77,7 @@ pub type Address = sp_runtime::MultiAddress<AccountId, ()>;
 /// Block header type as expected by this runtime.
 pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
 /// Block type as expected by this runtime.
+// TODO: THIS NEEDS TO GOOOOO (WTF is this doing here already)
 pub type Block = generic::Block<Header, UncheckedExtrinsic>;
 
 /// The SignedExtension to the basic transaction logic.

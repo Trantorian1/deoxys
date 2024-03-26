@@ -1,7 +1,6 @@
 use std::fmt::Display;
 use std::sync::MutexGuard;
 
-use async_trait::async_trait;
 use bitvec::prelude::Msb0;
 use bitvec::vec::BitVec;
 use bitvec::view::AsBits;
@@ -51,8 +50,12 @@ pub enum DeoxysStorageError {
     StorageInsertionError(StorageType),
     #[error("failed to retrive data from {0}")]
     StorageRetrievalError(StorageType),
+    #[error("failed to initialize trie for {0}")]
+    TrieInitError(StorageType),
     #[error("failed to compute trie root for {0}")]
     TrieRootError(StorageType),
+    #[error("failed to commit to {0}")]
+    TrieCommitError(StorageType),
 }
 
 mod bonsai_identifier {
@@ -60,12 +63,6 @@ mod bonsai_identifier {
     pub const CLASS: &[u8] = "0xclass".as_bytes();
     pub const TRANSACTION: &[u8] = "0xtransaction".as_bytes();
     pub const EVENT: &[u8] = "0xevent".as_bytes();
-}
-
-trait TrieHandler<I, K, V> {
-    fn insert(&mut self, identifier: &I, key: &K, value: V) -> Result<(), DeoxysStorageError>;
-
-    fn get(&self, identifier: &I, key: &K) -> Result<Option<Felt>, DeoxysStorageError>;
 }
 
 impl<'a> StorageHandler {
@@ -82,42 +79,43 @@ impl<'a> StorageHandler {
     }
 }
 
-impl<'a> TrieHandler<ContractAddress, ContractAddress, Felt> for ContractTrieHandler<'a> {
-    fn insert(
-        &mut self,
-        identifier: &ContractAddress,
-        key: &ContractAddress,
-        value: Felt,
-    ) -> Result<(), DeoxysStorageError> {
-        let identifier = conv_contract_identifier(identifier);
+impl<'a> ContractTrieHandler<'a> {
+    pub fn insert(&mut self, key: &ContractAddress, value: Felt) -> Result<(), DeoxysStorageError> {
         let key = conv_contract_key(key);
 
-        self.0
-            .insert(identifier, &key, &value)
-            .map_err(|_| DeoxysStorageError::StorageInsertionError(StorageType::Contract))?;
+        self.0.insert(bonsai_identifier::CONTRACT, &key, &value).expect("show not fail lol");
 
         Ok(())
     }
 
-    fn get(&self, identifier: &ContractAddress, key: &ContractAddress) -> Result<Option<Felt>, DeoxysStorageError> {
-        let identifier = conv_contract_identifier(identifier);
+    pub fn get(&self, key: &ContractAddress) -> Result<Option<Felt>, DeoxysStorageError> {
         let key = conv_contract_key(key);
 
         let result = self
             .0
-            .get(identifier, &key)
+            .get(bonsai_identifier::CONTRACT, &key)
             .map_err(|_| DeoxysStorageError::StorageRetrievalError(StorageType::Contract))?;
 
         Ok(result)
     }
-}
 
-impl<'a> ContractTrieHandler<'a> {
-    fn root(&mut self, block_number: u64) -> Result<Felt, DeoxysStorageError> {
+    pub fn commit(&mut self, block_number: u64) -> Result<(), DeoxysStorageError> {
         self.0
             .commit(BasicId::new(block_number))
-            .map_err(|_| DeoxysStorageError::TrieRootError(StorageType::Contract))?;
+            .map_err(|_| DeoxysStorageError::TrieCommitError(StorageType::Contract))?;
 
+        Ok(())
+    }
+
+    pub fn init(&mut self) -> Result<(), DeoxysStorageError> {
+        self.0
+            .init_tree(bonsai_identifier::CONTRACT)
+            .map_err(|_| DeoxysStorageError::TrieInitError(StorageType::Contract))?;
+
+        Ok(())
+    }
+
+    pub fn root(&mut self) -> Result<Felt, DeoxysStorageError> {
         let root_hash = self
             .0
             .root_hash(bonsai_identifier::CONTRACT)
@@ -127,25 +125,22 @@ impl<'a> ContractTrieHandler<'a> {
     }
 }
 
-impl<'a> TrieHandler<ContractAddress, StorageKey, StarkFelt> for ContractStorageTrieHandler<'a> {
-    fn insert(
+impl<'a> ContractStorageTrieHandler<'a> {
+    pub fn insert(
         &mut self,
         identifier: &ContractAddress,
         key: &StorageKey,
         value: StarkFelt,
     ) -> Result<(), DeoxysStorageError> {
-        let identifier = conv_contract_identifier(&identifier);
+        let identifier = conv_contract_identifier(identifier);
         let key = conv_contract_storage_key(key);
         let value = conv_contract_value(value);
 
-        self.0
-            .insert(identifier, &key, &value)
-            .map_err(|_| DeoxysStorageError::StorageInsertionError(StorageType::ContractStorage))?;
-
+        self.0.insert(identifier, &key, &value).unwrap();
         Ok(())
     }
 
-    fn get(&self, identifier: &ContractAddress, key: &StorageKey) -> Result<Option<Felt>, DeoxysStorageError> {
+    pub fn get(&self, identifier: &ContractAddress, key: &StorageKey) -> Result<Option<Felt>, DeoxysStorageError> {
         let identifier = conv_contract_identifier(identifier);
         let key = conv_contract_storage_key(key);
 
@@ -156,19 +151,25 @@ impl<'a> TrieHandler<ContractAddress, StorageKey, StarkFelt> for ContractStorage
 
         Ok(result)
     }
-}
 
-impl<'a> ContractStorageTrieHandler<'a> {
-    fn root(&mut self, block_number: u64, identifier: &ContractAddress) -> Result<Felt, DeoxysStorageError> {
+    pub fn commit(&mut self, block_number: u64) -> Result<(), DeoxysStorageError> {
         self.0
             .commit(BasicId::new(block_number))
-            .map_err(|_| DeoxysStorageError::TrieRootError(StorageType::ContractStorage))?;
+            .map_err(|_| DeoxysStorageError::TrieCommitError(StorageType::ContractStorage))?;
 
+        Ok(())
+    }
+
+    pub fn init(&mut self, identifier: &ContractAddress) -> Result<(), DeoxysStorageError> {
         let identifier = conv_contract_identifier(identifier);
-        let root_hash = self
-            .0
-            .root_hash(identifier)
-            .map_err(|_| DeoxysStorageError::TrieRootError(StorageType::ContractStorage))?;
+        self.0.init_tree(identifier).unwrap();
+
+        Ok(())
+    }
+
+    pub fn root(&mut self, identifier: &ContractAddress) -> Result<Felt, DeoxysStorageError> {
+        let identifier = conv_contract_identifier(identifier);
+        let root_hash = self.0.root_hash(identifier).unwrap();
 
         Ok(root_hash)
     }

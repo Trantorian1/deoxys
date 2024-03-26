@@ -7,6 +7,7 @@ use bonsai_trie::id::BasicId;
 use bonsai_trie::BonsaiStorage;
 use indexmap::IndexMap;
 use mc_db::bonsai_db::BonsaiDb;
+use mc_db::DeoxysBackend;
 use mp_felt::Felt252Wrapper;
 use mp_hashers::HasherT;
 use sp_core::hexdisplay::AsBytesRef;
@@ -39,12 +40,8 @@ pub struct ContractLeafParams {
 /// # Returns
 ///
 /// The storage root hash.
-pub fn update_storage_trie(
-    contract_address: &ContractAddress,
-    storage_updates: &IndexMap<StorageKey, StarkFelt>,
-    bonsai_contract_storage: &Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
-) {
-    let mut bonsai_storage = bonsai_contract_storage.lock().unwrap();
+pub fn update_storage_trie(contract_address: &ContractAddress, storage_updates: &IndexMap<StorageKey, StarkFelt>) {
+    let mut bonsai_storage = DeoxysBackend::bonsai_storage().lock().unwrap();
     let identifier = identifier(contract_address);
     bonsai_storage.init_tree(identifier).expect("Failed to init tree");
 

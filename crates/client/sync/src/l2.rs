@@ -131,8 +131,6 @@ pub async fn sync<C>(
     mut sender_config: SenderConfig,
     fetch_config: FetchConfig,
     first_block: u64,
-    bonsai_contract: &Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
-    bonsai_contract_storage: &Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
     bonsai_class: &Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Poseidon>>>,
     client: Arc<C>,
 ) where
@@ -150,8 +148,7 @@ pub async fn sync<C>(
     if first_block == 1 {
         let state_update =
             provider.get_state_update(BlockId::Number(0)).await.expect("getting state update for genesis block");
-        verify_l2(0, &state_update, overrides, bonsai_contract, bonsai_contract_storage, bonsai_class, None)
-            .expect("verifying genesis block");
+        verify_l2(0, &state_update, overrides, bonsai_class, None).expect("verifying genesis block");
     }
 
     let fetch_stream =
@@ -194,14 +191,12 @@ pub async fn sync<C>(
                 let state_update = {
                     if fetch_config.verify {
                         let overrides = Arc::clone(overrides);
-                        let bonsai_contract = Arc::clone(bonsai_contract);
-                        let bonsai_contract_storage = Arc::clone(bonsai_contract_storage);
                         let bonsai_class = Arc::clone(bonsai_class);
                         let state_update = Arc::new(state_update);
                         let state_update_1 = Arc::clone(&state_update);
 
                         tokio::task::spawn_blocking(move || {
-                            verify_l2(block_n, &state_update, &overrides, &bonsai_contract, &bonsai_contract_storage, &bonsai_class, block_hash)
+                            verify_l2(block_n, &state_update, &overrides, &bonsai_class, block_hash)
                                 .expect("verifying block");
                         })
                         .await
@@ -284,23 +279,14 @@ pub fn verify_l2(
     block_number: u64,
     state_update: &StateUpdate,
     overrides: &Arc<OverrideHandle<RuntimeBlock<Header<u32, BlakeTwo256>, OpaqueExtrinsic>>>,
-    bonsai_contract: &Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
-    bonsai_contract_storage: &Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Pedersen>>>,
     bonsai_class: &Arc<Mutex<BonsaiStorage<BasicId, BonsaiDb, Poseidon>>>,
     substrate_block_hash: Option<H256>,
 ) -> Result<(), L2SyncError> {
     let state_update_wrapper = StateUpdateWrapper::from(state_update);
 
     let csd = build_commitment_state_diff(state_update_wrapper.clone());
-    let state_root = update_state_root(
-        csd,
-        Arc::clone(overrides),
-        Arc::clone(bonsai_contract),
-        Arc::clone(bonsai_contract_storage),
-        Arc::clone(bonsai_class),
-        block_number,
-        substrate_block_hash,
-    );
+    let state_root =
+        update_state_root(csd, Arc::clone(overrides), Arc::clone(bonsai_class), block_number, substrate_block_hash);
     log::debug!("state_root: {state_root:?}");
     let block_hash = state_update.block_hash.expect("Block hash not found in state update");
     log::info!("update_state_root {} -- block_hash: {block_hash:?}, state_root: {state_root:?}", block_number);
